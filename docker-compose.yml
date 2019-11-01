@@ -1,0 +1,76 @@
+version: "3.1"
+services:
+
+    mysql:
+      image: mysql:8.0
+      container_name: "${PROJECT_NAME}_mysql"
+      working_dir: /application
+      volumes:
+        - ./openWS:/application
+      environment:
+        - MYSQL_ROOT_PASSWORD=dbrootpw
+        - MYSQL_DATABASE=${PROJECT_NAME}
+        - MYSQL_USER=dbuser
+        - MYSQL_PASSWORD=dbpw
+      ports:
+        - "3306:3306"
+
+    elasticsearch:
+      image: docker.elastic.co/elasticsearch/elasticsearch:6.8.4
+      container_name: "${PROJECT_NAME}_elasticsearch"
+      environment:
+        - "discovery.type=single-node"
+        - "bootstrap.memory_lock=true"
+        - "ES_JAVA_OPTS=-Xms1G -Xmx1G"
+        - "xpack.security.enabled=false"
+        - "http.cors.enabled=true"
+        - "http.cors.allow-origin=*"
+        - cluster.name=${PROJECT_NAME}     
+      ports:
+        - "9200:9200"
+
+    webserver:
+      image: nginx:alpine
+      container_name: "${PROJECT_NAME}_webserver"
+      working_dir: /application
+      volumes:
+          - ./openWS:/application
+          - ./phpdocker/nginx/nginx.conf:/etc/nginx/conf.d/default.conf
+      labels:
+        - "traefik.http.routers.${PROJECT_NAME}_webserver.rule=Host(`${PROJECT_BASE_URL}`)"
+
+    traefik:
+      image: traefik:v2.0
+      container_name: "${PROJECT_NAME}_traefik"
+      command: --api.insecure=true --providers.docker
+      ports:
+        - '8000:80'
+#        - '8080:8080' # Dashboard
+      volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+
+    php-fpm:
+      build: phpdocker/php-fpm
+      container_name: "${PROJECT_NAME}_php-fpm"
+      working_dir: /application
+      volumes:
+        - ./openWS:/application
+        - ./phpdocker/php-fpm/php-ini-overrides.ini:/etc/php/7.2/fpm/conf.d/99-overrides.ini
+
+    pma:
+      image: phpmyadmin/phpmyadmin
+      container_name: "${PROJECT_NAME}_pma"
+      environment:
+        PMA_HOST: mysql
+        PHP_UPLOAD_MAX_FILESIZE: 1G
+        PHP_MAX_INPUT_VARS: 1G
+      labels:
+        - "traefik.http.routers.${PROJECT_NAME}_pma.rule=Host(`pma.${PROJECT_BASE_URL}`)"
+
+    elasticsearch-head:
+      container_name: "${PROJECT_NAME}_elastichead"
+      depends_on:
+        - elasticsearch
+      image: tobias74/elasticsearch-head:6
+      labels:
+        - "traefik.http.routers.${PROJECT_NAME}_elastichead.rule=Host(`elastic.${PROJECT_BASE_URL}`)"
